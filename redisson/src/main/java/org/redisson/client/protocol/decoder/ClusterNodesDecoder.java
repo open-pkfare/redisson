@@ -35,6 +35,7 @@ import java.util.List;
 public class ClusterNodesDecoder implements Decoder<List<ClusterNodeInfo>> {
 
     private final boolean ssl;
+    private final Logger log = LoggerFactory.getLogger(getClass());
     
     public ClusterNodesDecoder(boolean ssl) {
         super();
@@ -47,59 +48,63 @@ public class ClusterNodesDecoder implements Decoder<List<ClusterNodeInfo>> {
         
         List<ClusterNodeInfo> nodes = new ArrayList<>();
         for (String nodeInfo : response.split("\n")) {
-            ClusterNodeInfo node = new ClusterNodeInfo(nodeInfo);
-            String[] params = nodeInfo.split(" ");
+            try {
+                ClusterNodeInfo node = new ClusterNodeInfo(nodeInfo);
+                String[] params = nodeInfo.split(" ");
 
-            String nodeId = params[0];
-            node.setNodeId(nodeId);
+                String nodeId = params[0];
+                node.setNodeId(nodeId);
 
-            String flags = params[2];
-            for (String flag : flags.split(",")) {
-                for (Flag nodeInfoFlag : ClusterNodeInfo.Flag.values()) {
-                    if (nodeInfoFlag.getValue().equalsIgnoreCase(flag)) {
-                        node.addFlag(nodeInfoFlag);
-                        break;
+                String flags = params[2];
+                for (String flag : flags.split(",")) {
+                    for (Flag nodeInfoFlag : ClusterNodeInfo.Flag.values()) {
+                        if (nodeInfoFlag.getValue().equalsIgnoreCase(flag)) {
+                            node.addFlag(nodeInfoFlag);
+                            break;
+                        }
                     }
                 }
-            }
-            
-            if (!node.containsFlag(Flag.NOADDR)) {
-                String protocol = "redis://";
-                if (ssl) {
-                    protocol = "rediss://";
-                }
-                
-                String addr = params[1].split("@")[0];
-                String name = addr.substring(0, addr.lastIndexOf(":"));
-                if (name.isEmpty()) {
-                    // skip nodes with empty address
-                    continue;
-                }
-                String uri = protocol + addr;
-                node.setAddress(uri);
-            }
 
-            String slaveOf = params[3];
-            if (!"-".equals(slaveOf)) {
-                node.setSlaveOf(slaveOf);
-            }
+                if (!node.containsFlag(Flag.NOADDR)) {
+                    String protocol = "redis://";
+                    if (ssl) {
+                        protocol = "rediss://";
+                    }
 
-            if (params.length > 8) {
-                for (int i = 0; i < params.length - 8; i++) {
-                    String slots = params[i + 8];
-                    if (slots.contains("-<-") || slots.contains("->-")) {
+                    String addr = params[1].split("@")[0];
+                    String name = addr.substring(0, addr.lastIndexOf(":"));
+                    if (name.isEmpty()) {
+                        // skip nodes with empty address
                         continue;
                     }
+                    String uri = protocol + addr;
+                    node.setAddress(uri);
+                }
 
-                    String[] parts = slots.split("-");
-                    if (parts.length == 1) {
-                        node.addSlotRange(new ClusterSlotRange(Integer.valueOf(parts[0]), Integer.valueOf(parts[0])));
-                    } else if (parts.length == 2) {
-                        node.addSlotRange(new ClusterSlotRange(Integer.valueOf(parts[0]), Integer.valueOf(parts[1])));
+                String slaveOf = params[3];
+                if (!"-".equals(slaveOf)) {
+                    node.setSlaveOf(slaveOf);
+                }
+
+                if (params.length > 8) {
+                    for (int i = 0; i < params.length - 8; i++) {
+                        String slots = params[i + 8];
+                        if (slots.contains("-<-") || slots.contains("->-")) {
+                            continue;
+                        }
+
+                        String[] parts = slots.split("-");
+                        if (parts.length == 1) {
+                            node.addSlotRange(new ClusterSlotRange(Integer.valueOf(parts[0]), Integer.valueOf(parts[0])));
+                        } else if (parts.length == 2) {
+                            node.addSlotRange(new ClusterSlotRange(Integer.valueOf(parts[0]), Integer.valueOf(parts[1])));
+                        }
                     }
                 }
+                nodes.add(node);
+            }catch (Exception e) {
+                log.error("Can't parse cluster node info: " + nodeInfo, e);
             }
-            nodes.add(node);
         }
         return nodes;
     }
